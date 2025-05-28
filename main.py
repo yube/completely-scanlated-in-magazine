@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 import threading
 
-mag_name = 'Comic LO'
+mag_name = 'Afternoon'
 
 def resize_image(img, max_height=218):
     width, height = img.size
@@ -88,28 +88,6 @@ def create_montage(images, titles, images_per_row=10):
     montage.save(f"{mag_name}.png")
     print(f"Chart saved as {mag_name}.png")
 
-
-def get_info(id):
-    get_url = f'https://api.mangaupdates.com/v1/series/{id}'
-    response = requests.get(get_url)
-    data = response.json()
-    title = data.get('title')
-    url = data.get('url')
-    image = data.get('image').get('url').get('original')
-    completed = data.get('completed')
-    status = data.get('status')
-    if completed and 'Oneshot' not in status:
-        info.append({
-            'title': title,
-            'url': url,
-            'image': image,
-            'completed': completed
-        })
-
-        print(f'{title}: {url} - Completed - {status}')
-    # else:
-        # print(f'{title}: {url} - Unfinished o')
-
 def get_mag(name):
     url = 'https://api.mangaupdates.com/v1/publishers/publication'
 
@@ -134,32 +112,47 @@ def get_mag(name):
         print("Error:", e)
         print("Response:", response.text)
 
-def prep_image(info_list):
-    images = []
-    titles = []
-    for entry in info_list:
-        try:
-            response = requests.get(entry['image'])
-            img = Image.open(BytesIO(response.content)).convert('RGB')
-            resized = resize_image(img=img)
-            images.append(resized)
-            titles.append(entry['title'])
-        except Exception as e:
-            print(f"failed to load image for {entry['title']}:{e}")
-            continue
-    return images, titles
+def make_blank_image(size=(150, 218), text="No Image"):
+    img = Image.new('RGB', size, color=(200, 200, 200))
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype("arial.ttf", 16)
+    except:
+        font = ImageFont.load_default()
 
-# info = []
-# ids = get_mag(mag_name)
-# for id in ids:
-#     get_info(id)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+
+    position = ((size[0] - text_width) // 2, (size[1] - text_height) // 2)
+    draw.text(position, text, fill=(50, 50, 50), font=font)
+    return img
+
+
+def download_and_resize(entry):
+    try:
+        response = requests.get(entry['image'], timeout=10)
+        img = Image.open(BytesIO(response.content)).convert('RGB')
+    except Exception as e:
+        print(f"Failed to load image for {entry['title']}: {e}")
+        img = make_blank_image()
+
+    resized = resize_image(img=img)
+    return resized, entry['title']
+
+def prep_image(info_list):
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        results = list(executor.map(download_and_resize, info_list))
+
+    images, titles = zip(*[(img, title) for img, title in results if img])
+    return list(images), list(titles)
 
 info = []
 ids = get_mag(mag_name)
 
 lock = threading.Lock()
 
-def safe_get_info(series_id):
+def get_info(series_id):
     try:
         get_url = f'https://api.mangaupdates.com/v1/series/{series_id}'
         response = requests.get(get_url)
@@ -184,7 +177,7 @@ def safe_get_info(series_id):
 
 # Parallelize
 with ThreadPoolExecutor(max_workers=10) as executor:
-    list(tqdm(executor.map(safe_get_info, ids), total=len(ids)))
+    list(tqdm(executor.map(get_info, ids), total=len(ids)))
 
 
 images, titles = prep_image(info)
