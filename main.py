@@ -85,6 +85,7 @@ def create_montage(images, titles, images_per_row=10):
             text_y = y_offset + img_height + j * line_spacing
             draw.text((x_offset, text_y), line.strip(), font=font, fill=(0, 0, 0))
 
+    mag_name = mag_name.replace('"', '').replace("'", "")
     montage.save(f"{mag_name}.png")
     print(f"Chart saved as {mag_name}.png")
 
